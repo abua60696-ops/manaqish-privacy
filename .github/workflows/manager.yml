@@ -1,0 +1,843 @@
+name: Build Manager APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" > /dev/null
+
+      - name: Generate Android project
+        run: |
+          set -e
+          mkdir -p app/src/main/java/com/manaqish/manager
+          mkdir -p app/src/main/assets
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/mipmap-anydpi-v26
+
+          cp manager.html app/src/main/assets/index.html
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "MnaqishManager"
+          include ':app'
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins { id 'com.android.application' version '8.5.2' apply false }
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx3072m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins { id 'com.android.application' }
+          android {
+              namespace 'com.manaqish.manager'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.manaqish.manager"
+                  minSdk 26
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0.0"
+              }
+              buildTypes {
+                  release { minifyEnabled false }
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          configurations.all {
+              exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
+              exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
+              resolutionStrategy {
+                  force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'
+              }
+          }
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.7.0'
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+              <uses-permission android:name="android.permission.WAKE_LOCK" />
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+
+              <queries>
+                  <intent>
+                      <action android:name="android.intent.action.VIEW" />
+                      <data android:scheme="https" />
+                  </intent>
+                  <intent>
+                      <action android:name="android.intent.action.VIEW" />
+                      <data android:scheme="tel" />
+                  </intent>
+                  <intent>
+                      <action android:name="android.intent.action.GET_CONTENT" />
+                  </intent>
+              </queries>
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="@string/app_name"
+                  android:roundIcon="@mipmap/ic_launcher_round"
+                  android:supportsRtl="true"
+                  android:usesCleartextTraffic="true"
+                  android:theme="@style/Theme.MnaqishManager">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout|uiMode"
+                      android:windowSoftInputMode="adjustResize"
+                      android:launchMode="singleTask">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <service
+                      android:name=".OrderWatchService"
+                      android:enabled="true"
+                      android:exported="false"
+                      android:foregroundServiceType="dataSync" />
+
+                  <receiver
+                      android:name=".BootReceiver"
+                      android:enabled="true"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.BOOT_COMPLETED" />
+                      </intent-filter>
+                  </receiver>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/values/strings.xml <<'EOF'
+          <resources>
+              <string name="app_name">إدارة مناقيش لحم</string>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/values/colors.xml <<'EOF'
+          <resources>
+              <color name="ink">#FF221F1A</color>
+              <color name="paper">#FFEFECE1</color>
+              <color name="pistachio">#FF4A7C31</color>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/values/themes.xml <<'EOF'
+          <resources xmlns:tools="http://schemas.android.com/tools">
+              <style name="Theme.MnaqishManager" parent="Theme.AppCompat.Light.NoActionBar">
+                  <item name="android:statusBarColor">@color/ink</item>
+                  <item name="android:windowBackground">@color/paper</item>
+                  <item name="colorPrimary">@color/ink</item>
+                  <item name="colorAccent">@color/pistachio</item>
+              </style>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/drawable/ic_launcher_background.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+              <solid android:color="#221F1A" />
+          </shape>
+          EOF
+
+          cat > app/src/main/res/drawable/ic_launcher_foreground.xml <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp" android:height="108dp"
+              android:viewportWidth="108" android:viewportHeight="108">
+              <path android:fillColor="#4A7C31"
+                  android:pathData="M54,30 m-24,0 a24,24 0 1,0 48,0 a24,24 0 1,0 -48,0" />
+              <path android:fillColor="#C68A12"
+                  android:pathData="M54,30 m-16,0 a16,16 0 1,0 32,0 a16,16 0 1,0 -32,0" />
+              <path android:fillColor="#FBF0D8"
+                  android:pathData="M38,52 h32 v5 h-32 z M38,62 h32 v5 h-32 z M38,72 h20 v5 h-20 z" />
+          </vector>
+          EOF
+
+          cat > app/src/main/res/drawable/ic_notify.xml <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="24dp" android:height="24dp"
+              android:viewportWidth="24" android:viewportHeight="24"
+              android:tint="#FFFFFF">
+              <path android:fillColor="#FFFFFF"
+                  android:pathData="M12,22c1.1,0 2,-0.9 2,-2h-4C10,21.1 10.9,22 12,22zM18,16v-5c0,-3.07 -1.63,-5.64 -4.5,-6.32V4c0,-0.83 -0.67,-1.5 -1.5,-1.5s-1.5,0.67 -1.5,1.5v0.68C7.64,5.36 6,7.92 6,11v5l-2,2v1h16v-1L18,16z" />
+          </vector>
+          EOF
+
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@drawable/ic_launcher_background" />
+              <foreground android:drawable="@drawable/ic_launcher_foreground" />
+          </adaptive-icon>
+          EOF
+          cp app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+
+          cat > app/src/main/java/com/manaqish/manager/Notify.java <<'EOF'
+          package com.manaqish.manager;
+
+          import android.app.Notification;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.PendingIntent;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.media.AudioAttributes;
+          import android.media.RingtoneManager;
+          import android.net.Uri;
+          import android.os.Build;
+
+          import androidx.core.app.NotificationCompat;
+
+          public class Notify {
+
+              public static final String CH_ORDERS = "orders_v1";
+              public static final String CH_WATCH  = "watch_v1";
+
+              public static void createChannels(Context c) {
+                  if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+                  NotificationManager nm = c.getSystemService(NotificationManager.class);
+                  if (nm == null) return;
+
+                  NotificationChannel orders = new NotificationChannel(
+                          CH_ORDERS, "الطلبات الجديدة", NotificationManager.IMPORTANCE_HIGH);
+                  orders.setDescription("تنبيه فوري عند وصول طلب جديد");
+                  orders.enableVibration(true);
+                  orders.setVibrationPattern(new long[]{0, 400, 200, 400});
+                  Uri sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+                  orders.setSound(sound, new AudioAttributes.Builder()
+                          .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                          .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                          .build());
+                  nm.createNotificationChannel(orders);
+
+                  NotificationChannel watch = new NotificationChannel(
+                          CH_WATCH, "مراقبة الطلبات", NotificationManager.IMPORTANCE_MIN);
+                  watch.setDescription("إشعار دائم يبقي المراقبة تعمل في الخلفية");
+                  watch.setShowBadge(false);
+                  nm.createNotificationChannel(watch);
+              }
+
+              public static void order(Context c, String title, String body) {
+                  createChannels(c);
+                  Intent open = new Intent(c, MainActivity.class);
+                  open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
+                  PendingIntent pi = PendingIntent.getActivity(c, 0, open, flags);
+
+                  Notification n = new NotificationCompat.Builder(c, CH_ORDERS)
+                          .setSmallIcon(R.drawable.ic_notify)
+                          .setContentTitle(title)
+                          .setContentText(body)
+                          .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+                          .setPriority(NotificationCompat.PRIORITY_HIGH)
+                          .setCategory(NotificationCompat.CATEGORY_ALARM)
+                          .setDefaults(NotificationCompat.DEFAULT_ALL)
+                          .setAutoCancel(true)
+                          .setContentIntent(pi)
+                          .build();
+
+                  NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
+                  if (nm != null) nm.notify(Math.abs(title.hashCode()), n);
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/manaqish/manager/OrderWatchService.java <<'EOF'
+          package com.manaqish.manager;
+
+          import android.app.Notification;
+          import android.app.PendingIntent;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.content.pm.ServiceInfo;
+          import android.os.Build;
+          import android.os.IBinder;
+          import android.os.PowerManager;
+
+          import androidx.annotation.Nullable;
+          import androidx.core.app.NotificationCompat;
+
+          import org.json.JSONObject;
+
+          import java.io.BufferedReader;
+          import java.io.InputStreamReader;
+          import java.net.HttpURLConnection;
+          import java.net.URL;
+          import java.util.HashSet;
+          import java.util.Iterator;
+          import java.util.Set;
+
+          public class OrderWatchService extends android.app.Service {
+
+              public static final String DEFAULT_DB = "https://manaqish-60058-default-rtdb.europe-west1.firebasedatabase.app";
+              private static final int FG_ID = 4711;
+              private static final long INTERVAL_MS = 30000L;
+
+              private volatile boolean running = false;
+              private Thread worker;
+              private PowerManager.WakeLock lock;
+
+              @Nullable
+              @Override
+              public IBinder onBind(Intent intent) { return null; }
+
+              @Override
+              public void onCreate() {
+                  super.onCreate();
+                  Notify.createChannels(this);
+                  startForegroundSafe();
+                  PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                  if (pm != null) {
+                      lock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "manaqish:watch");
+                      try { lock.acquire(); } catch (Exception ignored) {}
+                  }
+              }
+
+              private void startForegroundSafe() {
+                  Intent open = new Intent(this, MainActivity.class);
+                  int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
+                  PendingIntent pi = PendingIntent.getActivity(this, 1, open, flags);
+
+                  Notification n = new NotificationCompat.Builder(this, Notify.CH_WATCH)
+                          .setSmallIcon(R.drawable.ic_notify)
+                          .setContentTitle("مراقبة الطلبات نشطة")
+                          .setContentText("سيصلك تنبيه فوري عند وصول طلب جديد")
+                          .setPriority(NotificationCompat.PRIORITY_MIN)
+                          .setOngoing(true)
+                          .setContentIntent(pi)
+                          .build();
+
+                  try {
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                          startForeground(FG_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                      } else {
+                          startForeground(FG_ID, n);
+                      }
+                  } catch (Exception ignored) {
+                      startForeground(FG_ID, n);
+                  }
+              }
+
+              @Override
+              public int onStartCommand(Intent intent, int flags, int startId) {
+                  if (!running) {
+                      running = true;
+                      worker = new Thread(this::loop, "order-watch");
+                      worker.start();
+                  }
+                  return START_STICKY;
+              }
+
+              private void loop() {
+                  while (running) {
+                      try { poll(); } catch (Throwable ignored) {}
+                      try { Thread.sleep(INTERVAL_MS); } catch (InterruptedException e) { return; }
+                  }
+              }
+
+              private void poll() throws Exception {
+                  SharedPreferences p = getSharedPreferences("watch", MODE_PRIVATE);
+                  String db = p.getString("db", DEFAULT_DB);
+                  if (db == null || db.isEmpty()) db = DEFAULT_DB;
+                  while (db.endsWith("/")) db = db.substring(0, db.length() - 1);
+
+                  // نجلب آخر 8 طلبات فقط — لا قائمة كل الطلبات المتراكمة
+                  String body = get(db + "/orders.json?orderBy=%22$key%22&limitToLast=8");
+                  if (body == null || body.equals("null")) return;
+
+                  JSONObject data = new JSONObject(body);
+                  Set<String> seen = new HashSet<>(p.getStringSet("seen", new HashSet<>()));
+                  boolean first = !p.getBoolean("primed", false);
+
+                  Set<String> now = new HashSet<>();
+                  Iterator<String> it = data.keys();
+                  while (it.hasNext()) now.add(it.next());
+
+                  if (first) {
+                      p.edit().putStringSet("seen", now).putBoolean("primed", true).apply();
+                      return;
+                  }
+
+                  for (String k : now) {
+                      if (seen.contains(k)) continue;
+                      String title = "طلب جديد";
+                      String text = "وصل طلب جديد إلى المحل";
+                      try {
+                          JSONObject o = data.getJSONObject(k);
+                          String name = o.optString("name", "زبون");
+                          if (name.isEmpty()) name = "زبون";
+                          String total = o.has("total") ? String.valueOf(o.opt("total")) : "";
+                          String code = o.optString("code", "");
+                          title = code.isEmpty() ? "طلب جديد" : ("طلب جديد " + code);
+                          text = name + (total.isEmpty() ? "" : (" — " + total));
+                          String phone = o.optString("phone", "");
+                          if (!phone.isEmpty()) text = text + "\n" + phone;
+                      } catch (Exception ignored) {}
+                      Notify.order(this, title, text);
+                  }
+
+                  // نحتفظ بآخر 40 مفتاحاً فقط حتى لا تتضخم الذاكرة
+                  Set<String> keep = new HashSet<>(now);
+                  int room = 40 - keep.size();
+                  for (String k : seen) {
+                      if (room <= 0) break;
+                      if (keep.add(k)) room--;
+                  }
+                  p.edit().putStringSet("seen", keep).apply();
+              }
+
+              private String get(String url) {
+                  HttpURLConnection c = null;
+                  try {
+                      c = (HttpURLConnection) new URL(url).openConnection();
+                      c.setConnectTimeout(10000);
+                      c.setReadTimeout(15000);
+                      c.setRequestMethod("GET");
+                      if (c.getResponseCode() != 200) return null;
+                      BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream(), "UTF-8"));
+                      StringBuilder sb = new StringBuilder();
+                      String line;
+                      while ((line = r.readLine()) != null) sb.append(line);
+                      r.close();
+                      return sb.toString();
+                  } catch (Exception e) {
+                      return null;
+                  } finally {
+                      if (c != null) c.disconnect();
+                  }
+              }
+
+              @Override
+              public void onDestroy() {
+                  running = false;
+                  if (worker != null) worker.interrupt();
+                  if (lock != null && lock.isHeld()) {
+                      try { lock.release(); } catch (Exception ignored) {}
+                  }
+                  super.onDestroy();
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/manaqish/manager/BootReceiver.java <<'EOF'
+          package com.manaqish.manager;
+
+          import android.content.BroadcastReceiver;
+          import android.content.Context;
+          import android.content.Intent;
+
+          import androidx.core.content.ContextCompat;
+
+          public class BootReceiver extends BroadcastReceiver {
+              @Override
+              public void onReceive(Context context, Intent intent) {
+                  if (intent == null || intent.getAction() == null) return;
+                  if (!Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) return;
+                  try {
+                      ContextCompat.startForegroundService(context, new Intent(context, OrderWatchService.class));
+                  } catch (Exception ignored) {}
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/manaqish/manager/MainActivity.java <<'EOF'
+          package com.manaqish.manager;
+
+          import android.Manifest;
+          import android.annotation.SuppressLint;
+          import android.content.ActivityNotFoundException;
+          import android.content.ContentValues;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.content.pm.PackageManager;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.print.PrintAttributes;
+          import android.print.PrintDocumentAdapter;
+          import android.print.PrintManager;
+          import android.provider.MediaStore;
+          import android.provider.Settings;
+          import android.util.Base64;
+          import android.webkit.CookieManager;
+          import android.webkit.GeolocationPermissions;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.ValueCallback;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.Toast;
+
+          import androidx.activity.OnBackPressedCallback;
+          import androidx.annotation.NonNull;
+          import androidx.annotation.Nullable;
+          import androidx.appcompat.app.AlertDialog;
+          import androidx.appcompat.app.AppCompatActivity;
+          import androidx.core.app.ActivityCompat;
+          import androidx.core.content.ContextCompat;
+
+          import java.io.OutputStream;
+
+          public class MainActivity extends AppCompatActivity {
+
+              private static final String START_URL = "file:///android_asset/index.html";
+              private static final int REQ_FILE = 1001;
+              private static final int REQ_LOCATION = 1002;
+              private static final int REQ_NOTIFY = 1003;
+
+              private WebView web;
+              private ValueCallback<Uri[]> filePathCallback;
+              private GeolocationPermissions.Callback geoCallback;
+              private String geoOrigin;
+              private long lastBackPress = 0;
+
+              @SuppressLint("SetJavaScriptEnabled")
+              @Override
+              protected void onCreate(@Nullable Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  Notify.createChannels(this);
+
+                  web = new WebView(this);
+                  setContentView(web);
+
+                  WebSettings s = web.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setDatabaseEnabled(true);
+                  s.setGeolocationEnabled(true);
+                  s.setAllowFileAccess(true);
+                  s.setAllowContentAccess(true);
+                  s.setLoadWithOverviewMode(true);
+                  s.setUseWideViewPort(true);
+                  s.setSupportZoom(false);
+                  s.setBuiltInZoomControls(false);
+                  s.setMediaPlaybackRequiresUserGesture(false);
+                  s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+                  CookieManager.getInstance().setAcceptCookie(true);
+
+                  web.addJavascriptInterface(new Bridge(), "AndroidApp");
+
+                  web.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                          return handleUrl(url);
+                      }
+
+                      @Override
+                      public void onPageFinished(WebView view, String url) {
+                          view.evaluateJavascript(shim(), null);
+                      }
+                  });
+
+                  web.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+                          geoOrigin = origin;
+                          geoCallback = callback;
+                          if (ContextCompat.checkSelfPermission(MainActivity.this,
+                                  Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                              callback.invoke(origin, true, false);
+                          } else {
+                              ActivityCompat.requestPermissions(MainActivity.this,
+                                      new String[]{Manifest.permission.ACCESS_FINE_LOCATION,
+                                                   Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
+                          }
+                      }
+
+                      @Override
+                      public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback,
+                                                       FileChooserParams params) {
+                          if (filePathCallback != null) filePathCallback.onReceiveValue(null);
+                          filePathCallback = callback;
+                          try {
+                              Intent i = params.createIntent();
+                              i.addCategory(Intent.CATEGORY_OPENABLE);
+                              startActivityForResult(Intent.createChooser(i, "اختر ملفاً"), REQ_FILE);
+                              return true;
+                          } catch (ActivityNotFoundException e) {
+                              filePathCallback = null;
+                              toast("لا يوجد تطبيق لاختيار الملفات");
+                              return false;
+                          }
+                      }
+                  });
+
+                  web.setDownloadListener((url, ua, cd, mime, len) -> {
+                      if (url.startsWith("blob:")) {
+                          web.evaluateJavascript(blobJs(url), null);
+                      } else if (url.startsWith("data:")) {
+                          int c = url.indexOf(',');
+                          String meta = url.substring(5, c);
+                          saveBase64(url.substring(c + 1),
+                                  "backup-" + System.currentTimeMillis() + ".json", meta.split(";")[0]);
+                      } else {
+                          openExternally(url);
+                      }
+                  });
+
+                  getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+                      @Override
+                      public void handleOnBackPressed() {
+                          if (web.canGoBack()) {
+                              web.goBack();
+                          } else if (System.currentTimeMillis() - lastBackPress < 2000) {
+                              moveTaskToBack(true);
+                          } else {
+                              lastBackPress = System.currentTimeMillis();
+                              toast("اضغط رجوع مرة أخرى للإخفاء — المراقبة تبقى تعمل");
+                          }
+                      }
+                  });
+
+                  askNotificationPermission();
+
+                  if (savedInstanceState != null) web.restoreState(savedInstanceState);
+                  else web.loadUrl(START_URL);
+              }
+
+              private String shim() {
+                  return "(function(){"
+                       + "if(window.__mnq) return; window.__mnq=true;"
+                       + "window.print=function(){try{AndroidApp.printPage();}catch(e){}};"
+                       + "function N(t,o){try{AndroidApp.notify(String(t),(o&&o.body)?String(o.body):'');}catch(e){}}"
+                       + "N.permission='granted';"
+                       + "N.requestPermission=function(cb){if(cb)cb('granted');return Promise.resolve('granted');};"
+                       + "window.Notification=N;"
+                       + "setInterval(function(){try{if(typeof dbUrl==='function')AndroidApp.setDbUrl(dbUrl()||'');}catch(e){}},5000);"
+                       + "})();";
+              }
+
+              private void askNotificationPermission() {
+                  if (Build.VERSION.SDK_INT >= 33 &&
+                          ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                                  != PackageManager.PERMISSION_GRANTED) {
+                      ActivityCompat.requestPermissions(this,
+                              new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFY);
+                  } else {
+                      startWatch();
+                  }
+              }
+
+              private void startWatch() {
+                  try {
+                      ContextCompat.startForegroundService(this, new Intent(this, OrderWatchService.class));
+                  } catch (Exception ignored) {}
+                  askBatteryExemption();
+              }
+
+              private void askBatteryExemption() {
+                  SharedPreferences p = getSharedPreferences("watch", MODE_PRIVATE);
+                  if (p.getBoolean("batt_asked", false)) return;
+                  p.edit().putBoolean("batt_asked", true).apply();
+
+                  new AlertDialog.Builder(this)
+                          .setTitle("تنبيهات الطلبات")
+                          .setMessage("لكي تصلك الطلبات فوراً حتى والتطبيق مغلق، استثنِ التطبيق من توفير البطارية.")
+                          .setPositiveButton("فتح الإعدادات", (d, w) -> {
+                              try {
+                                  startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+                              } catch (Exception e) {
+                                  toast("افتح: الإعدادات ← البطارية ← استثناءات");
+                              }
+                          })
+                          .setNegativeButton("لاحقاً", null)
+                          .show();
+              }
+
+              private boolean handleUrl(String url) {
+                  if (url.startsWith("http://") || url.startsWith("https://")) {
+                      if (url.contains("wa.me") || url.contains("api.whatsapp.com")
+                              || url.contains("maps.google") || url.contains("google.com/maps")) {
+                          openExternally(url);
+                          return true;
+                      }
+                      return false;
+                  }
+                  if (url.startsWith("tel:") || url.startsWith("sms:") || url.startsWith("mailto:")
+                          || url.startsWith("whatsapp:") || url.startsWith("geo:") || url.startsWith("intent:")) {
+                      openExternally(url);
+                      return true;
+                  }
+                  return false;
+              }
+
+              private void openExternally(String url) {
+                  try {
+                      startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                  } catch (ActivityNotFoundException e) {
+                      toast("لا يوجد تطبيق مناسب لفتح هذا الرابط");
+                  }
+              }
+
+              private void doPrint() {
+                  PrintManager pm = (PrintManager) getSystemService(PRINT_SERVICE);
+                  if (pm == null) return;
+                  String job = getString(R.string.app_name) + " - وثيقة";
+                  PrintDocumentAdapter adapter = web.createPrintDocumentAdapter(job);
+                  pm.print(job, adapter, new PrintAttributes.Builder().build());
+              }
+
+              private String blobJs(String blobUrl) {
+                  return "(function(){var x=new XMLHttpRequest();x.open('GET','" + blobUrl + "',true);"
+                       + "x.responseType='blob';x.onload=function(){var r=new FileReader();"
+                       + "r.onloadend=function(){AndroidApp.saveBase64(r.result.split(',')[1],'backup.json','application/json');};"
+                       + "r.readAsDataURL(x.response);};x.send();})();";
+              }
+
+              private void saveBase64(String base64, String fileName, String mime) {
+                  try {
+                      byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
+                      ContentValues cv = new ContentValues();
+                      cv.put(MediaStore.Downloads.DISPLAY_NAME, fileName);
+                      cv.put(MediaStore.Downloads.MIME_TYPE, mime);
+                      Uri uri;
+                      if (Build.VERSION.SDK_INT >= 29) {
+                          uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
+                      } else {
+                          uri = getContentResolver().insert(MediaStore.Files.getContentUri("external"), cv);
+                      }
+                      if (uri == null) { toast("تعذّر الحفظ"); return; }
+                      OutputStream out = getContentResolver().openOutputStream(uri);
+                      if (out != null) { out.write(bytes); out.close(); }
+                      toast("تم الحفظ في مجلد التنزيلات: " + fileName);
+                  } catch (Exception e) {
+                      toast("فشل الحفظ: " + e.getMessage());
+                  }
+              }
+
+              private void toast(String m) {
+                  runOnUiThread(() -> Toast.makeText(this, m, Toast.LENGTH_SHORT).show());
+              }
+
+              private class Bridge {
+                  @JavascriptInterface
+                  public void printPage() { runOnUiThread(MainActivity.this::doPrint); }
+
+                  @JavascriptInterface
+                  public void saveBase64(String d, String n, String m) { MainActivity.this.saveBase64(d, n, m); }
+
+                  @JavascriptInterface
+                  public void notify(String title, String body) {
+                      Notify.order(MainActivity.this, title, body);
+                  }
+
+                  @JavascriptInterface
+                  public void setDbUrl(String url) {
+                      if (url == null || url.trim().isEmpty()) return;
+                      SharedPreferences p = getSharedPreferences("watch", MODE_PRIVATE);
+                      if (!url.equals(p.getString("db", ""))) {
+                          p.edit().putString("db", url.trim()).apply();
+                      }
+                  }
+              }
+
+              @Override
+              protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+                  super.onActivityResult(requestCode, resultCode, data);
+                  if (requestCode == REQ_FILE) {
+                      if (filePathCallback == null) return;
+                      Uri[] results = null;
+                      if (resultCode == RESULT_OK && data != null) {
+                          if (data.getClipData() != null) {
+                              int n = data.getClipData().getItemCount();
+                              results = new Uri[n];
+                              for (int i = 0; i < n; i++) results[i] = data.getClipData().getItemAt(i).getUri();
+                          } else if (data.getData() != null) {
+                              results = new Uri[]{data.getData()};
+                          }
+                      }
+                      filePathCallback.onReceiveValue(results);
+                      filePathCallback = null;
+                  }
+              }
+
+              @Override
+              public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                                     @NonNull int[] grantResults) {
+                  super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+                  if (requestCode == REQ_LOCATION && geoCallback != null) {
+                      boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+                      geoCallback.invoke(geoOrigin, granted, false);
+                      geoCallback = null;
+                  } else if (requestCode == REQ_NOTIFY) {
+                      startWatch();
+                  }
+              }
+
+              @Override
+              protected void onSaveInstanceState(@NonNull Bundle outState) {
+                  super.onSaveInstanceState(outState);
+                  web.saveState(outState);
+              }
+          }
+          EOF
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build APK
+        run: gradle assembleDebug --no-daemon
+
+      - name: Rename APK
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk out/manaqish-manager.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: manaqish-manager-apk
+          path: out/manaqish-manager.apk
