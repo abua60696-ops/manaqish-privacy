@@ -1,0 +1,89 @@
+rules_version = '2';
+
+// ============================================================================
+// قواعد أمان Firestore لتطبيق مناقيش دير الزور
+// ============================================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // المدير هو مستخدم موثّق لديه role == "admin" في مستند users/{uid} الخاص به
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ------------------------------------------------------------------
+    // القائمة، المسابقات، الإعدادات: قراءة عامة للجميع، وتعديل للمدير فقط
+    // ------------------------------------------------------------------
+    match /menu/{productId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /contests/{contestId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ------------------------------------------------------------------
+    // الطلبات: يمكن لأي زبون (مسجّل أو ضيف) إنشاء طلب جديد
+    // القراءة مسموحة فقط لصاحب الطلب (uid مطابق) أو للمدير
+    // التعديل والحذف للمدير فقط (لتحديث حالة الطلب من تطبيق المدير)
+    // ------------------------------------------------------------------
+    match /orders/{orderDocId} {
+      allow create: if true;
+      allow read: if isAdmin() || (isSignedIn() && resource.data.customerUid == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    // عدّاد رقم الطلب اليومي — لا يحتوي بيانات حساسة، يُستخدم فقط لتوليد رقم تسلسلي
+    match /counters/{counterId} {
+      allow read, write: if true;
+    }
+
+    // ------------------------------------------------------------------
+    // المستخدمون: كل مستخدم يقرأ/يعدّل مستنده فقط، والمدير يرى الجميع
+    // لا يمكن لأي مستخدم أن يمنح نفسه صلاحية admin
+    // ------------------------------------------------------------------
+    match /users/{uid} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      allow create: if isSignedIn() && request.auth.uid == uid && request.resource.data.role != 'admin';
+      allow update: if isAdmin() || (isSignedIn() && request.auth.uid == uid && request.resource.data.role == resource.data.role);
+      allow delete: if isAdmin();
+
+      match /pointsHistory/{entryId} {
+        allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+        allow write: if isAdmin();
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // مشاركات المسابقات: المستخدم يشارك باسمه فقط، ولا يمكنه تعديل مشاركته لاحقاً
+    // ------------------------------------------------------------------
+    match /contestEntries/{entryId} {
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow read: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    // ------------------------------------------------------------------
+    // طلبات استبدال نقاط الولاء: المستخدم ينشئ طلب استبدال باسمه فقط
+    // اعتماد الطلب (تغيير الحالة) للمدير فقط
+    // ------------------------------------------------------------------
+    match /redemptions/{redemptionId} {
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow read: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+  }
+}
