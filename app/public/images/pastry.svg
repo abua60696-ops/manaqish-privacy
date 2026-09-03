@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300">
+  <rect width="300" height="300" fill="#FFF3E2"/>
+  <path d="M60 190 Q150 90 240 190 Z" fill="#E67E22"/>
+  <path d="M60 190 Q150 90 240 190" fill="none" stroke="#C96A17" stroke-width="8"/>
+  <rect x="60" y="190" width="180" height="12" fill="#C96A17"/>
+  <text x="150" y="270" font-family="sans-serif" font-size="16" fill="#973A27" text-anchor="middle">صورة قريباً — فطيرة</text>
+</svg>
